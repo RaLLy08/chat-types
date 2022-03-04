@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+</head>
+<body>
+    <style>
+        header {
+            position: sticky;
+            top: 5px;
+        }
+    </style>
+    <script>
+        window.onload = function() {
+            const sendBtn = document.getElementById('submit');
+            const input = document.getElementById('input');
+                
+            const getInputValue = () => input.value;
+
+            const getAllMessages = async () => {
+                const res = await fetch('/api/messages');
+                return res.json();
+            }
+
+            const listenMessageSend = async () => {
+                const res = await fetch('/api/pulling/messages');
+                return res.json();
+            }
+            
+            const postPullingMessage = async (message) => {
+                return fetch('/api/pulling/messages', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        message,
+                    })
+                });
+            }
+            
+            const addMessage = (message) => {
+                const list = document.getElementById('list');
+                const li = document.createElement('li');
+
+                li.innerText = message;
+                list.appendChild(li);
+            }
+
+            const setMessages = (dataList) => {
+                const list = document.getElementById('list');
+                list.innerHTML = '';
+
+                for (const data of dataList) {
+                    const { message } = data;
+                    const li = document.createElement('li');
+                    
+                    li.innerText = message;
+                    list.appendChild(li);
+                }
+            }
+
+            const setMessagesFromDb = async () => {
+                const messages = await getAllMessages();
+                
+                setMessages(messages);
+            } 
+
+            const pullingMessage = async () => {
+                const { message } = await listenMessageSend();
+                
+                addMessage(message);
+
+                window.scroll({
+                    top: Number.MAX_SAFE_INTEGER,
+                    behavior: 'smooth'
+                })
+
+                pullingMessage();
+            }
+
+            sendBtn.onclick = () => {
+                postPullingMessage(getInputValue());
+            }
+
+            const appInit = () => {
+                pullingMessage();
+                setMessagesFromDb();
+            }
+    
+            appInit()
+        }
+    </script>
+    <header>
+        <input id="input">
+        <button id="submit">Send</button>
+    </header>
+    <ol id="list">
+    </ol>
+</body>
+</html>
