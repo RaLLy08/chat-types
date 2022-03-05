@@ -12,33 +12,177 @@
             position: sticky;
             top: 5px;
         }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        :root {
+            --slider-width: 16px;
+            --slider-height: 16px;
+            --switch-width: 40px;
+            --switch-height: 20px;
+            --switch-margin-x: 1px;
+            --switch-margin-top: 2px;
+        }
+        
+        .slider {
+            border-radius: 14px;
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+        }
+
+        input:checked + .slider::after {
+            content: 'on';
+            font-size: 12px;
+            position: absolute;
+            left: 8px;
+            top: 2px;
+        }
+
+        input + .slider::after {
+            content: 'off';
+            font-size: 12px;
+            position: absolute;
+            right: 8px;
+            top: 3px;
+        }
+
+        .switch {
+            border-radius: 14px;
+            border: 1px solid black;
+            position: relative;
+            display: inline-block;
+            width: var(--switch-width);
+            height: var(--switch-height);
+        }
+
+        .slider::before {
+            transition: .2s;
+            content: '';
+            width:  var(--slider-width);
+            height: var(--slider-height);
+            top: var(--switch-margin-top);
+            left: var(--switch-margin-x);
+            background-color:gray;
+            border-radius: 50%;
+            position: absolute;
+        }
+
+        input:checked + .slider::before {
+            transform: translateX(calc( var(--switch-width) - var(--slider-width) - var(--switch-margin-x)) );
+            background-color: #30db05;
+            box-shadow: rgba(145, 226, 14, 0.74) 0px 0px 10px;
+        }
+
+        .checkbox {
+            height: 10px;
+            width: 10px;
+        }
+
     </style>
     <script>
         window.onload = function() {
             const sendBtn = document.getElementById('submit');
+            const pullingBtn = document.getElementById('pulling');
+            const websocketBtn = document.getElementById('websocket');
             const input = document.getElementById('input');
-                
-            const getInputValue = () => input.value;
-
+            
             const getAllMessages = async () => {
                 const res = await fetch('/api/messages');
                 return res.json();
+            };
+
+
+            class PullingApi {
+                constructor() {
+                    this.controller = new AbortController();
+                }
+
+                listenMessageSend = async () => {
+                    const res = await fetch('/api/pulling/messages', {
+                        signal: this.controller.signal
+                    });
+
+                    return res.json();
+                };
+
+                abortPostPulling = () => {
+                    this.controller.abort();
+                }
+
+                postPullingMessage = async (message) => {
+                    fetch('/api/pulling/messages', {
+                        method: 'POST',
+                        body: JSON.stringify(
+                            message
+                        )
+                    });
+                }
             }
 
-            const listenMessageSend = async () => {
-                const res = await fetch('/api/pulling/messages');
-                return res.json();
+            class Connections {
+                static PULLING = 'pulling';
+                static WEBSOCKET = 'websocket';
+
+                constructor({
+                    onMessage,
+                }) {
+
+                    this.pullingApi = null;
+                    this.websocketApi = null;
+
+                    this.onMessage = onMessage;
+                }
+
+                run = async (type) => {
+                    if (type === Connections.PULLING) {
+                        this.pullingApi = new PullingApi();
+                        this.#startPulling();
+                    };
+                    if (type === Connections.WEBSOCKET) {
+                        this.websocketApi = new WebSocket('ws://' + window.location.host);
+                        this.#startWsListening();
+                    };
+                }
+
+                abort = (type) => {
+                    if (type === Connections.PULLING) {
+                        this.pullingApi.abortPostPulling();
+                        this.pullingApi = null;
+                    };
+                    if (type === Connections.WEBSOCKET) {
+                       this.websocketApi.close();
+                        this.websocketApi = null;
+                    };
+                }
+
+                #startWsListening = () => {
+                    this.websocketApi.onmessage = async (event) => void this.onMessage(event.data)
+                }
+
+                #startPulling = async () => {
+                    const res = await this.pullingApi.listenMessageSend();
+                
+                    this.onMessage(res);
+
+                    this.#startPulling();
+                }
+
+                sendMessage = (message) => {
+                    if (this.pullingApi) this.pullingApi.postPullingMessage(message);
+                    if (this.websocketApi) this.websocketApi.send(message);
+                }
             }
-            
-            const postPullingMessage = async (message) => {
-                return fetch('/api/pulling/messages', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        message,
-                    })
-                });
-            }
-            
+
+
+            const getInputValue = () => input.value;
+
             const addMessage = (message) => {
                 const list = document.getElementById('list');
                 const li = document.createElement('li');
@@ -47,12 +191,11 @@
                 list.appendChild(li);
             }
 
-            const setMessages = (dataList) => {
+            const setMessages = (messages) => {
                 const list = document.getElementById('list');
                 list.innerHTML = '';
 
-                for (const data of dataList) {
-                    const { message } = data;
+                for (const message of messages) {
                     const li = document.createElement('li');
                     
                     li.innerText = message;
@@ -60,40 +203,65 @@
                 }
             }
 
+
             const setMessagesFromDb = async () => {
                 const messages = await getAllMessages();
                 
                 setMessages(messages);
             } 
 
-            const pullingMessage = async () => {
-                const { message } = await listenMessageSend();
-                
-                addMessage(message);
 
-                window.scroll({
-                    top: Number.MAX_SAFE_INTEGER,
-                    behavior: 'smooth'
+            const appInit = async () => {
+                const { sendMessage, run, abort } = new Connections({
+                    onMessage: (data) => {
+                        addMessage(data);   
+
+                        window.scroll({
+                            top: Number.MAX_SAFE_INTEGER,
+                            behavior: 'smooth'
+                        })
+                    },
                 })
 
-                pullingMessage();
-            }
+                pullingBtn.onclick = (e) => {
+                    if (e.target.checked) {
+                        run(Connections.PULLING);
+                    } else {
+                        abort(Connections.PULLING)
+                    }
+                }
 
-            sendBtn.onclick = () => {
-                postPullingMessage(getInputValue());
-            }
+                websocketBtn.onclick = (e) => {
+                    if (e.target.checked) {
+                        run(Connections.WEBSOCKET);
+                    } else {
+                        abort(Connections.WEBSOCKET)
+                    }
+                }
 
-            const appInit = () => {
-                pullingMessage();
+                sendBtn.onclick = () => {
+                    sendMessage(getInputValue());
+                }
+
                 setMessagesFromDb();
             }
-    
-            appInit()
+
+            appInit();
         }
     </script>
     <header>
         <input id="input">
         <button id="submit">Send</button>
+        <span> Pulling: </span>
+        <label class="switch">
+            <input type="checkbox" id="pulling">
+            <span class="slider"></span>
+        </label>
+        <span> Websocket: </span>
+        <label class="switch">
+            <input type="checkbox" id="websocket">
+            <span class="slider"></span>
+        </label>
     </header>
     <ol id="list">
     </ol>

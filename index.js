@@ -3,10 +3,14 @@ const path = require("path");
 const fs = require("fs/promises");
 const events = require("events");
 
+const WebSocket = require("ws");
+
 const messages = [];
 
 const getMessagesListeners = []; // all get req listeners for broadcasting;
 const emitter = new events.EventEmitter();
+
+emitter.setMaxListeners(100);
 
 const parseBody = (request) => new Promise((resolve, reject) => {
     const body = [];
@@ -66,6 +70,20 @@ const requestListener = async (req, res) => {
 }
 
 const httpServer = http.createServer(requestListener);
+
+const wss = new WebSocket.Server({
+    server: httpServer,
+})
+
+wss.on('connection', ws => {
+    ws.on('message', event => {
+        const text = event.toString();
+        
+        messages.push(text);
+        for (const client of wss.clients) client.send(text)
+    })
+})
+
 
 httpServer.listen(3000, () => {
     console.log('started')
