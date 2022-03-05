@@ -28,12 +28,12 @@ const parseBody = (request) => new Promise((resolve, reject) => {
 const requestListener = async (req, res) => {
 
     switch (req.url) {
-        case '/api/pulling/messages':
+        case '/api/longPulling/messages':
             res.setHeader('Content-Type', 'application/json');
 
             if (req.method === 'GET') {
                 const message = await new Promise((resolve, reject) => {
-                    emitter.once('newMessage', (message) => {
+                    emitter.once('newLongPullingMessage', (message) => {
                         resolve(message)
                     })
                 })
@@ -45,10 +45,32 @@ const requestListener = async (req, res) => {
                 const message = await parseBody(req);
                 messages.push(message);
 
-                emitter.emit('newMessage', message);
+                emitter.emit('newLongPullingMessage', message);
             }
     
             return res.end();
+        case '/api/eventSource/messages':
+            if (req.method === 'GET') {
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Connection', 'keep-alive');
+                res.setHeader('Cache-Control', 'no-cache');
+
+                emitter.on('newEventSourceMessage', (message) => {
+                    console.log(message);
+                    res.write('id: ' + 3123 + '\n');
+                    res.write("data: new server event " + message + '\n\n');
+                    // res.write(`data: ${JSON.stringify(message)}\n\n`)
+                })
+            }
+    
+            if (req.method === 'POST') {
+                res.setHeader('Content-Type', 'application/json');
+                const message = await parseBody(req);
+                emitter.emit('newEventSourceMessage', message);
+
+                return res.end();
+            }
+    
         case '/api/messages':
             if (req.method === 'GET') res.write(JSON.stringify(messages));
     

@@ -89,8 +89,9 @@
     <script>
         window.onload = function() {
             const sendBtn = document.getElementById('submit');
-            const pullingBtn = document.getElementById('pulling');
+            const longPullingBtn = document.getElementById('longPulling');
             const websocketBtn = document.getElementById('websocket');
+            const eventSourceBtn = document.getElementById('eventSource');
             const input = document.getElementById('input');
             
             const getAllMessages = async () => {
@@ -98,26 +99,85 @@
                 return res.json();
             };
 
+            class WebSocketApi {
+                constructor({
+                    onMessage
+                }) {
+                    this.websocket = new WebSocket(window.location.origin.replace('http', 'ws'));
+                    this.onMessage = onMessage;
 
-            class PullingApi {
-                constructor() {
-                    this.controller = new AbortController();
+                    this.#listenWs();
                 }
 
-                listenMessageSend = async () => {
-                    const res = await fetch('/api/pulling/messages', {
+                #listenWs = () => {
+                    this.websocket.onmessage = async (event) => void this.onMessage(event.data)
+                }
+                
+                send = (message) => {
+                    this.websocket.send(message)
+                }
+
+                abort = () => {
+                    this.websocket.close();
+                }
+            }
+
+            class EventSourceApi {
+                constructor({
+                    onMessage
+                }) {
+                    this.eventSource = new EventSource('/api/eventSource/messages');
+                    this.eventSource.onmessage = (e) => console.log(e);
+                }
+
+                send = async (message) => {
+                    return fetch('/api/eventSource/messages', {
+                        method: 'POST',
+                        body: JSON.stringify(
+                            {
+            message,
+            id: Date.now()
+        }
+                        )
+                    })
+                }
+
+                abort = () => {
+                    this.eventSource.close()
+                }
+            }
+
+            class LongPullingApi {
+                constructor({
+                    onMessage
+                }) {
+                    this.controller = new AbortController();
+                    this.onMessage = onMessage;
+
+                    this.#startLongPulling();
+                }
+                #startLongPulling = async () => {
+                    const res = await this.#listenMessageSend();
+                
+                    this.onMessage(res);
+
+                    this.#startLongPulling();
+                }
+
+                #listenMessageSend = async () => {
+                    const res = await fetch('/api/longPulling/messages', {
                         signal: this.controller.signal
                     });
 
                     return res.json();
                 };
 
-                abortPostPulling = () => {
+                abort = () => {
                     this.controller.abort();
                 }
 
-                postPullingMessage = async (message) => {
-                    fetch('/api/pulling/messages', {
+                send = async (message) => {
+                    fetch('/api/longPulling/messages', {
                         method: 'POST',
                         body: JSON.stringify(
                             message
@@ -127,56 +187,62 @@
             }
 
             class Connections {
-                static PULLING = 'pulling';
+                static LONG_PULLING = 'longPulling';
                 static WEBSOCKET = 'websocket';
+                // static EVENT_SOURCE = 'eventSource';
 
                 constructor({
                     onMessage,
                 }) {
 
-                    this.pullingApi = null;
+                    this.longPullingApi = null;
                     this.websocketApi = null;
+                    // this.eventSource = null;
 
                     this.onMessage = onMessage;
                 }
 
                 run = async (type) => {
-                    if (type === Connections.PULLING) {
-                        this.pullingApi = new PullingApi();
-                        this.#startPulling();
+                    if (type === Connections.LONG_PULLING) {
+                        this.longPullingApi = new LongPullingApi({
+                            onMessage: this.onMessage,
+                        });
                     };
                     if (type === Connections.WEBSOCKET) {
-                        this.websocketApi = new WebSocket(window.location.origin.replace('http', 'ws'));
-                        this.#startWsListening();
+                        this.websocketApi = new WebSocketApi({
+                            onMessage: this.onMessage,
+                        });
                     };
+                    // if (type === Connections.EVENT_SOURCE) {
+                    //     this.eventSource = new EventSourceApi({
+                    //         onMessage: (e) => console.log(e)
+                    //     });
+                    // };
                 }
 
                 abort = (type) => {
-                    if (type === Connections.PULLING) {
-                        this.pullingApi.abortPostPulling();
-                        this.pullingApi = null;
+                    if (type === Connections.LONG_PULLING) {
+                        this.longPullingApi.abort();
+                        this.longPullingApi = null;
                     };
                     if (type === Connections.WEBSOCKET) {
-                       this.websocketApi.close();
+                        this.websocketApi.abort();
                         this.websocketApi = null;
                     };
+                    // if (type === Connections.EVENT_SOURCE) {
+                    //     this.eventSource.abort();
+                    //     this.eventSource = null;
+                    // };
                 }
 
-                #startWsListening = () => {
-                    this.websocketApi.onmessage = async (event) => void this.onMessage(event.data)
-                }
-
-                #startPulling = async () => {
-                    const res = await this.pullingApi.listenMessageSend();
-                
-                    this.onMessage(res);
-
-                    this.#startPulling();
-                }
+                // #startWsListening = () => {
+                //     this.websocketApi.onmessage = async (event) => void this.onMessage(event.data)
+                // }
 
                 sendMessage = (message) => {
-                    if (this.pullingApi) this.pullingApi.postPullingMessage(message);
+                    if (this.longPullingApi) this.longPullingApi.send(message);
                     if (this.websocketApi) this.websocketApi.send(message);
+                    // if (this.eventSource) this.eventSource.send(message);
                 }
             }
 
@@ -222,12 +288,20 @@
                         })
                     },
                 })
-
-                pullingBtn.onclick = (e) => {
+                /*
+                eventSourceBtn.onclick = (e) => {
                     if (e.target.checked) {
-                        run(Connections.PULLING);
+                        run(Connections.EVENT_SOURCE);
                     } else {
-                        abort(Connections.PULLING)
+                        abort(Connections.EVENT_SOURCE)
+                    }
+                }
+                */
+                longPullingBtn.onclick = (e) => {
+                    if (e.target.checked) {
+                        run(Connections.LONG_PULLING);
+                    } else {
+                        abort(Connections.LONG_PULLING)
                     }
                 }
 
@@ -252,14 +326,19 @@
     <header>
         <input id="input">
         <button id="submit">Send</button>
-        <span> Pulling: </span>
+        <span> Long Pulling: </span>
         <label class="switch">
-            <input type="checkbox" id="pulling">
+            <input type="checkbox" id="longPulling">
             <span class="slider"></span>
         </label>
         <span> Websocket: </span>
         <label class="switch">
             <input type="checkbox" id="websocket">
+            <span class="slider"></span>
+        </label>
+        <span> Event Source: </span>
+        <label class="switch">
+            <input disabled="true" type="checkbox" id="eventSource">
             <span class="slider"></span>
         </label>
     </header>
