@@ -7,7 +7,6 @@ const WebSocket = require("ws");
 
 const messages = [];
 
-const getMessagesListeners = []; // all get req listeners for broadcasting;
 const emitter = new events.EventEmitter();
 
 emitter.setMaxListeners(100);
@@ -37,7 +36,6 @@ const requestListener = async (req, res) => {
                     emitter.once('newMessage', (message) => {
                         resolve(message)
                     })
-                    getMessagesListeners.push(resolve);
                 })
     
                 res.write(JSON.stringify(message));
