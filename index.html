@@ -146,7 +146,7 @@
                         this.#startPulling();
                     };
                     if (type === Connections.WEBSOCKET) {
-                        this.websocketApi = new WebSocket('ws://' + window.location.host);
+                        this.websocketApi = new WebSocket(window.location.origin.replace('http', 'ws'));
                         this.#startWsListening();
                     };
                 }
